@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mystic Number Engine – Realtime</title>
+  <style>
+    :root{--bg:#0f0f12;--card:#181a1f;--muted:#8b8d93;--txt:#f6f7fb;--acc:#7c3aed;}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:Inter,system-ui,Arial}
+    header{padding:24px 20px;border-bottom:1px solid #23252b;background:linear-gradient(180deg,#121319,#0f0f12)}
+    h1{margin:0;font-weight:800;letter-spacing:.3px} small{color:var(--muted)}
+    main{padding:20px;max-width:1100px;margin:0 auto}
+    .row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    button{background:var(--acc);border:none;color:white;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:600}
+    button.ghost{background:#262833;color:#c7c8cc}
+    table{width:100%;border-collapse:collapse;background:var(--card);border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    th,td{padding:12px 14px;border-bottom:1px solid #23252b;font-size:14px;vertical-align:top}
+    th{background:#1d2026;text-align:left;color:#cfd1d7;font-weight:700}
+    tr:last-child td{border-bottom:none}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#262833;color:#c7c8cc;font-size:12px}
+    .muted{color:var(--muted)}
+    .mono{font-family:ui-monospace,Menlo,monospace}
+    .pill{background:#262833;border-radius:12px;padding:6px 10px;display:inline-block;margin:2px}
+    .right{display:flex;gap:10px;margin-left:auto}
+    .spinner{width:14px;height:14px;border:2px solid #fff3;border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite;margin-right:6px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    @media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:600px){.grid{grid-template-columns:1fr}}
+    .card{background:var(--card);border:1px solid #23252b;border-radius:16px;padding:12px}
+    .ok{color:#8ef58e}.err{color:#ffa8a8}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🔮 Mystic Number Engine <small class="muted">Realtime fetch → konversi → angka 4 digit</small></h1>
+  </header>
+  <main>
+    <div class="row">
+      <button id="btn-refresh">🔁 Refresh & Fetch</button>
+      <button id="btn-clear" class="ghost">🗑 Hapus Semua</button>
+      <div class="right">
+        <span id="status" class="badge">idle</span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="muted">Zodiak acak</div>
+        <div id="zodiakPick" class="pill mono">-</div>
+      </div>
+      <div class="card">
+        <div class="muted">Shio Tahun</div>
+        <div id="shioYear" class="pill mono">-</div>
+      </div>
+      <div class="card">
+        <div class="muted">Jam Realtime</div>
+        <div id="jamNow" class="pill mono">-</div>
+      </div>
+      <div class="card">
+        <div class="muted">Hasil 4 Digit</div>
+        <div id="finalNumber" class="pill mono" style="background:#2c2540;color:#dec8ff">-</div>
+      </div>
+    </div>
+
+    <table id="resultTable" style="margin-top:16px">
+      <thead>
+        <tr>
+          <th>Waktu</th>
+          <th>Sumber</th>
+          <th>Keyword</th>
+          <th>Angka Dasar</th>
+          <th>Konversi</th>
+          <th>Interpretasi</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </main>
+
+<script>
+const DATASET_URL = "/dataset.json";
+const SOURCES = [
+  { name: "Horoscope", url: () => `/api/horoscope?zodiac=${pickRandomZodiac()}&type=daily` },
+  { name: "Google", url: () => `/api/google?query=trending` },
+  { name: "TikTok", url: () => `/api/tiktok?product_id=601226` },
+  { name: "Dream", url: () => `/api/dream?symbol=${encodeURIComponent(pickRandomDreamSymbol())}` }
+];
+
+let DATASET = null;
+const state = { logs: JSON.parse(localStorage.getItem("results")||"[]") };
+
+function pad4(n){ return String(n).replace(/\\D/g,"").slice(-4).padStart(4,"0"); }
+function nowISO(){ return new Date().toLocaleString(); }
+
+function numerologyReduce(n){
+  let s = String(n).replace(/\\D/g,""); if(!s) return 0;
+  let sum = 0; for(const ch of s) sum += +ch;
+  while(sum > 9){ let t=0; for(const c of String(sum)) t+= +c; sum=t; }
+  return sum;
+}
+
+function pickRandomZodiac(){
+  const z = Object.keys(window.DATASET?.zodiak || {leo:1, aries:1});
+  return z[Math.floor(Math.random()*z.length)];
+}
+function pickRandomDreamSymbol(){
+  const keys = Object.keys(window.DATASET?.erek || {"ular":1,"uang":1,"kebakaran":1});
+  return keys[Math.floor(Math.random()*keys.length)];
+}
+function getChineseZodiacByYear(year){
+  const order = ["tikus","kerbau","macan","kelinci","naga","ular","kuda","kambing","monyet","ayam","anjing","babi"];
+  const baseYear = 2020; // tikus
+  const idx = (year - baseYear) % 12;
+  return order[(idx+12)%12];
+}
+
+async function fetchJSON(url){
+  try{
+    const r = await fetch(url);
+    const text = await r.text();
+    try { return JSON.parse(text); } catch { return { raw: text }; }
+  }catch(e){
+    return { error: true, message: e.message || "fetch failed" };
+  }
+}
+
+// Cari keyword dari seluruh JSON string
+function extractKeywordsFromObject(obj){
+  const text = JSON.stringify(obj || {}).toLowerCase();
+  const hits = [];
+  for(const k of Object.keys(DATASET.erek)){
+    if(text.includes(k)) hits.push(k);
+  }
+  // sinyal tambahan umum
+  if(/fire|burn|wildfire/.test(text)) hits.push("kebakaran","api");
+  if(/flood|banjir/.test(text)) hits.push("banjir");
+  if(/earthquake|gempa/.test(text)) hits.push("gempa");
+  if(/money|stock|saham|emas|gold/.test(text)) hits.push("uang","emas","saham");
+  if(/tiktok/.test(text)) hits.push("tiktok","viral");
+  return Array.from(new Set(hits));
+}
+
+function pickErekNumbersByKeywords(keywords){
+  for(const k of keywords){
+    const nums = DATASET.erek[k];
+    if(nums) return { key: k, nums };
+  }
+  const entries = Object.entries(DATASET.erek);
+  const [k, nums] = entries[Math.floor(Math.random()*entries.length)];
+  return { key: k, nums };
+}
+
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)] || 0; }
+
+function buildFourDigit({erekNum, shioNum, zodiakNum, hour}){
+  // metode last digit + fallback total sum
+  const a = String(erekNum).slice(-1);
+  const b = String(shioNum).slice(-1);
+  const c = String(zodiakNum).slice(-1);
+  const d = String(hour).slice(-1);
+  let candidate = a+b+c+d;
+  if(new Set(candidate).size <= 1){
+    const sum = (parseInt(String(erekNum).slice(-2))||0) +
+                (parseInt(String(shioNum).slice(-2))||0) +
+                (parseInt(String(zodiakNum).slice(-2))||0) + (parseInt(hour)||0);
+    candidate = pad4(sum);
+  }
+  return candidate;
+}
+
+function tafsirForNumber(num){
+  const nsum = numerologyReduce(num);
+  const meaning = DATASET.numerologi[String(nsum)] || "Energi umum";
+  let bonus = "";
+  const s = String(num);
+  if(s.includes("88")) bonus += " • Rejeki/materi kuat (88)";
+  if(s.includes("77")) bonus += " • Energi spiritual (77)";
+  if(s.includes("11")) bonus += " • Intuisi/visi (11)";
+  if(s.includes("44")) bonus += " • Stabil/proteksi (44)";
+  return `Numerologi ${nsum}: ${meaning}${bonus}`;
+}
+
+function addRow(row){
+  state.logs.unshift(row);
+  localStorage.setItem("results", JSON.stringify(state.logs.slice(0,100)));
+  renderTable();
+}
+function deleteRow(idx){
+  state.logs.splice(idx,1);
+  localStorage.setItem("results", JSON.stringify(state.logs));
+  renderTable();
+}
+function clearAll(){
+  state.logs = [];
+  localStorage.removeItem("results");
+  renderTable();
+}
+function renderTable(){
+  const tbody = document.querySelector("#resultTable tbody");
+  tbody.innerHTML = "";
+  state.logs.forEach((r, i) => {
+    tbody.insertAdjacentHTML("beforeend", `
+      <tr>
+        <td class="muted">\${r.time}</td>
+        <td><span class="badge">\${r.source}</span></td>
+        <td>\${r.keyword || "-"}</td>
+        <td class="mono">\${(r.base||[]).join(", ") || "-"}</td>
+        <td class="mono">\${r.compose || "-"}</td>
+        <td>\${r.interpret || "-"}</td>
+        <td><button class="ghost" onclick="deleteRow(\${i})">Hapus</button></td>
+      </tr>`);
+  });
+}
+
+async function runOnce(){
+  const statusEl = document.getElementById("status");
+  const setStatus = (html) => statusEl.innerHTML = html;
+
+  try{
+    setStatus('<span class="spinner"></span>fetching');
+    // 1) dataset
+    const ds = await fetchJSON(DATASET_URL);
+    if(!ds || !ds.erek){ throw new Error("dataset.json tidak terbaca (pastikan route Vercel tidak menimpa)"); }
+    DATASET = ds; window.DATASET = ds;
+
+    // 2) context waktu
+    const now = new Date();
+    const year = now.getFullYear();
+    const hour = now.getHours();
+    const hourKey = String(Math.max(13, Math.min(24, hour)));
+    const shio = getChineseZodiacByYear(year);
+    const zodiak = pickRandomZodiac();
+
+    // tampilkan header info
+    document.getElementById("shioYear").textContent = shio;
+    document.getElementById("zodiakPick").textContent = zodiak;
+    document.getElementById("jamNow").textContent = `${String(hour).padStart(2,"0")}:00`;
+
+    // 3) fetch empat sumber (pakai proxy)
+    const [hor, goo, tik, drm] = await Promise.allSettled(SOURCES.map(s => fetchJSON(s.url())));
+    const srcData = [hor, goo, tik, drm].map(x => x.status === "fulfilled" ? x.value : { error:true, message:x.reason?.message });
+
+    // Sumber-sumber punya bentuk {ok, status, data} atau {raw}; satukan semuanya jadi string untuk keyword
+    const keywords = Array.from(new Set([
+      ...extractKeywordsFromObject(srcData[0]),
+      ...extractKeywordsFromObject(srcData[1]),
+      ...extractKeywordsFromObject(srcData[2]),
+      ...extractKeywordsFromObject(srcData[3]),
+    ]));
+
+    // 4) angka dasar
+    const { key: erekKey, nums: erekNums } = pickErekNumbersByKeywords(keywords);
+    const shioNums = (DATASET.shio[shio]?.angka) || [2,12,22];
+    const zodiakNums = (DATASET.zodiak[zodiak]?.angka) || [1,9,19];
+    const jamNum = (DATASET.jam[hourKey]?.angka) || 99;
+
+    const erekNum = erekNums[erekNums.length-1] || erekNums[0];
+    const shioNum = pick(shioNums);
+    const zodiakNum = pick(zodiakNums);
+
+    // 5) komposisi 4 digit
+    const final4 = buildFourDigit({erekNum, shioNum, zodiakNum, hour: jamNum});
+    document.getElementById("finalNumber").textContent = final4;
+
+    // 6) tafsir
+    const jamMeaning = DATASET.jam[hourKey]?.arti || "Momentum netral";
+    const interpret = [
+      `Erek '${erekKey}' → ${erekNums.join("/")}`,
+      `Shio ${shio} → ${shioNums.join("/")}`,
+      `Zodiak ${zodiak} → ${zodiakNums.join("/")}`,
+      `Jam ${hourKey}:00 → ${jamMeaning}`,
+      tafsirForNumber(final4)
+    ].join(" • ");
+
+    addRow({
+      time: nowISO(),
+      source: keywords.length ? `Realtime (${keywords.length} kata)` : "Realtime",
+      keyword: keywords.slice(0,6).join(", ") || erekKey,
+      base: [erekNum, shioNum, zodiakNum, jamNum],
+      compose: `lastDigits(${erekNum}, ${shioNum}, ${zodiakNum}, ${jamNum}) → ${final4}`,
+      interpret
+    });
+
+    setStatus('<span class="ok">done</span>');
+  }catch(e){
+    setStatus('<span class="err">error</span>');
+    addRow({
+      time: nowISO(),
+      source: "Error",
+      keyword: "-",
+      base: [],
+      compose: "-",
+      interpret: e.message || "Terjadi kesalahan"
+    });
+  }
+}
+
+function boot(){
+  renderTable();
+  runOnce();
+}
+document.getElementById("btn-refresh").addEventListener("click", runOnce);
+document.getElementById("btn-clear").addEventListener("click", clearAll);
+boot();
+</script>
+</body>
+</html>
